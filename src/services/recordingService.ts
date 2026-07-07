@@ -2,44 +2,23 @@ import { localRepositories } from '../database';
 import { buildRecordedAsset } from '../domain/asset/logic';
 import { buildRecordedClip } from '../domain/clip/logic';
 import { Clip } from '../domain/clip/types';
-import { DEFAULT_PROJECT_SETTINGS } from '../domain/project/defaultSettings';
-import { afterClipRecorded, buildNewProject } from '../domain/project/logic';
+import { afterClipRecorded } from '../domain/project/logic';
 import { Project } from '../domain/project/types';
 import { formatLocalDate } from '../domain/shared/date';
-import { Track } from '../domain/track/types';
 import { logEvent } from './eventLogger';
 import { generateId } from './id';
+import { createProject } from './projectService';
 import { generateThumbnails } from './thumbnails';
 
 // Reuses today's draft/editing project if one exists, otherwise creates a new
-// project + its default video track (architecture doc v4.1: project-based,
+// one via projectService.createProject (architecture doc v4.1: project-based,
 // never gallery-based — every recorded clip belongs to a project automatically).
 async function getOrCreateActiveProject(): Promise<Project> {
   const today = formatLocalDate(new Date());
   const existing = await localRepositories.projects.getMostRecentDraftOrEditing(today);
   if (existing) return existing;
 
-  const now = new Date().toISOString();
-  const project = buildNewProject({
-    id: generateId(),
-    date: today,
-    settings: DEFAULT_PROJECT_SETTINGS,
-    now,
-  });
-  await localRepositories.projects.create(project);
-
-  const videoTrack: Track = {
-    id: generateId(),
-    projectId: project.id,
-    type: 'video',
-    orderIndex: 0,
-    createdAt: now,
-  };
-  await localRepositories.tracks.create(videoTrack);
-
-  await logEvent(project.id, 'ProjectCreated', { projectId: project.id });
-
-  return project;
+  return createProject();
 }
 
 export interface RecordClipInput {

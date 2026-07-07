@@ -16,6 +16,7 @@ import {
 } from '../../services/aiService';
 import { hideClipById, reorderClips, restoreClipById, trimClip } from '../../services/clipEditingService';
 import { exportProject } from '../../services/exportService';
+import { importVideosIntoProject } from '../../services/importService';
 import { requestBackgroundMusic } from '../../services/musicService';
 import { ClipWithAsset, getProjectDetail, ProjectDetail } from '../../services/projectService';
 import { retryProjectSync } from '../../services/syncService';
@@ -37,6 +38,7 @@ export default function ProjectDetailScreen() {
   const [narrationJobId, setNarrationJobId] = useState<string | null>(null);
   const [narrationJobStatus, setNarrationJobStatus] = useState<AiJob['status'] | null>(null);
   const [isAddingMusic, setIsAddingMusic] = useState(false);
+  const [isImporting, setIsImporting] = useState(false);
   const [highlightJobId, setHighlightJobId] = useState<string | null>(null);
   const [highlightJobStatus, setHighlightJobStatus] = useState<AiJob['status'] | null>(null);
   const [highlights, setHighlights] = useState<HighlightRecommendation[]>([]);
@@ -219,6 +221,21 @@ export default function ProjectDetailScreen() {
     setHighlights((prev) => prev.filter((item) => item.clipId !== clipId));
   };
 
+  const handleImport = async () => {
+    setIsImporting(true);
+    try {
+      const count = await importVideosIntoProject(detail.project.id);
+      if (count > 0) {
+        Alert.alert('가져오기 완료', `${count}개의 영상을 가져왔습니다.`);
+        reload();
+      }
+    } catch (error) {
+      Alert.alert('가져오기 실패', error instanceof Error ? error.message : '알 수 없는 오류가 발생했습니다.');
+    } finally {
+      setIsImporting(false);
+    }
+  };
+
   return (
     <View style={styles.container}>
       <View style={styles.header}>
@@ -261,6 +278,14 @@ export default function ProjectDetailScreen() {
 
       <Pressable style={styles.recordButton} onPress={() => router.push('/camera')}>
         <Text style={styles.recordButtonText}>촬영 추가하기</Text>
+      </Pressable>
+
+      <Pressable
+        style={[styles.importButton, isImporting && styles.exportButtonDisabled]}
+        onPress={handleImport}
+        disabled={isImporting}
+      >
+        <Text style={styles.recordButtonText}>{isImporting ? '가져오는 중...' : '기존 영상 가져오기'}</Text>
       </Pressable>
 
       <Pressable
@@ -363,6 +388,14 @@ const styles = StyleSheet.create({
   restoreButtonText: { fontSize: 12, color: '#2e7d32' },
   recordButton: { margin: 16, backgroundColor: '#e53935', paddingVertical: 14, borderRadius: 8, alignItems: 'center' },
   recordButtonText: { color: 'white', fontWeight: '600' },
+  importButton: {
+    marginHorizontal: 16,
+    marginBottom: 16,
+    backgroundColor: '#6d4c41',
+    paddingVertical: 14,
+    borderRadius: 8,
+    alignItems: 'center',
+  },
   exportButton: {
     marginHorizontal: 16,
     marginBottom: 16,
