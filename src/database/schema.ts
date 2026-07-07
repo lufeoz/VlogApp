@@ -18,6 +18,7 @@ CREATE TABLE IF NOT EXISTS projects (
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
 );
+CREATE INDEX IF NOT EXISTS idx_projects_status ON projects(status);
 
 CREATE TABLE IF NOT EXISTS tracks (
   id TEXT PRIMARY KEY NOT NULL,

@@ -30,9 +30,10 @@ export interface ProjectDetail {
   videoTrack: Track;
   visibleClips: ClipWithAsset[];
   hiddenClips: ClipWithAsset[];
+  failedSyncTaskCount: number;
 }
 
-// Read-only query backing the project editing screen (M2).
+// Read-only query backing the project editing screen (M2/M5).
 export async function getProjectDetail(projectId: string): Promise<ProjectDetail | null> {
   const project = await localRepositories.projects.getById(projectId);
   if (!project) return null;
@@ -50,10 +51,13 @@ export async function getProjectDetail(projectId: string): Promise<ProjectDetail
     return { clip, asset };
   };
 
+  const syncTasks = await localRepositories.syncQueue.listByProject(projectId);
+
   return {
     project,
     videoTrack,
     visibleClips: allClips.filter((clip) => clip.visibility === 'visible').map(withAsset),
     hiddenClips: allClips.filter((clip) => clip.visibility === 'hidden').map(withAsset),
+    failedSyncTaskCount: syncTasks.filter((task) => task.status === 'failed').length,
   };
 }

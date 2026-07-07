@@ -6,6 +6,7 @@ import DraggableFlatList, { RenderItemParams } from 'react-native-draggable-flat
 import { hideClipById, reorderClips, restoreClipById, trimClip } from '../../services/clipEditingService';
 import { exportProject } from '../../services/exportService';
 import { ClipWithAsset, getProjectDetail, ProjectDetail } from '../../services/projectService';
+import { retryProjectSync } from '../../services/syncService';
 import { ClipListItem } from '../../ui/components/ClipListItem';
 
 // UI only: renders project detail and forwards user actions to
@@ -14,6 +15,7 @@ export default function ProjectDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const [detail, setDetail] = useState<ProjectDetail | null>(null);
   const [isExporting, setIsExporting] = useState(false);
+  const [isSyncing, setIsSyncing] = useState(false);
 
   const reload = useCallback(() => {
     if (!id) return;
@@ -70,11 +72,34 @@ export default function ProjectDetailScreen() {
     }
   };
 
+  const handleRetrySync = async () => {
+    setIsSyncing(true);
+    try {
+      await retryProjectSync(detail.project.id);
+      reload();
+    } catch (error) {
+      console.error('Retry sync failed', error);
+      Alert.alert('재동기화 실패', error instanceof Error ? error.message : '알 수 없는 오류가 발생했습니다.');
+    } finally {
+      setIsSyncing(false);
+    }
+  };
+
   return (
     <View style={styles.container}>
       <View style={styles.header}>
         <Text style={styles.title}>{detail.project.title}</Text>
         <Text style={styles.status}>{detail.project.status}</Text>
+        {detail.failedSyncTaskCount > 0 && (
+          <View style={styles.recoveryBanner}>
+            <Text style={styles.recoveryBannerText}>
+              백업 중 문제가 발생했습니다 ({detail.failedSyncTaskCount}건)
+            </Text>
+            <Pressable style={styles.retrySyncButton} onPress={handleRetrySync} disabled={isSyncing}>
+              <Text style={styles.retrySyncButtonText}>{isSyncing ? '재동기화 중...' : '재동기화'}</Text>
+            </Pressable>
+          </View>
+        )}
       </View>
 
       <DraggableFlatList
@@ -138,4 +163,16 @@ const styles = StyleSheet.create({
   },
   exportButtonDisabled: { backgroundColor: '#90a4ae' },
   exportButtonText: { color: 'white', fontWeight: '600' },
+  recoveryBanner: {
+    marginTop: 8,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: '#fff3e0',
+    padding: 10,
+    borderRadius: 8,
+  },
+  recoveryBannerText: { fontSize: 12, color: '#e65100', flex: 1, marginRight: 8 },
+  retrySyncButton: { backgroundColor: '#e65100', paddingHorizontal: 10, paddingVertical: 6, borderRadius: 6 },
+  retrySyncButtonText: { color: 'white', fontSize: 12, fontWeight: '600' },
 });

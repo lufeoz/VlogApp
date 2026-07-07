@@ -75,6 +75,12 @@ export function createProjectRepository(): ProjectRepository {
       return rows.map(toDomain);
     },
 
+    async listByStatus(status) {
+      const db = await getDatabase();
+      const rows = await db.getAllAsync<ProjectRow>('SELECT * FROM projects WHERE status = ?', [status]);
+      return rows.map(toDomain);
+    },
+
     async update(id, patch) {
       const db = await getDatabase();
       const current = await repo.getById(id);

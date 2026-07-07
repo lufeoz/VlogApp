@@ -55,6 +55,28 @@ export async function enqueueProjectBackup(projectId: string, exportVersionId: s
   await logEvent(projectId, 'BackupStarted', { exportVersionId });
 }
 
+// A task that exhausted its retries (`failed`) is never picked up by a normal
+// drain again on its own — this is the manual "재동기화" recovery action
+// (architecture doc v4.1 §9): reset those specific tasks back to `pending`
+// and re-drain.
+export async function retryProjectSync(projectId: string): Promise<void> {
+  const now = new Date().toISOString();
+  const tasks = await localRepositories.syncQueue.listByProject(projectId);
+
+  for (const task of tasks) {
+    if (task.status !== 'failed') continue;
+    await localRepositories.syncQueue.update(task.taskId, {
+      status: 'pending',
+      retryCount: 0,
+      lastError: null,
+      updatedAt: now,
+    });
+  }
+
+  await localRepositories.projects.update(projectId, { status: 'syncing', updatedAt: now });
+  await processSyncQueue();
+}
+
 // Drains every currently-pending task once. Safe to call repeatedly (e.g. on
 // app foreground) — a task left `pending` after a failed attempt is simply
 // picked up again on the next call. No background scheduler here (M5).

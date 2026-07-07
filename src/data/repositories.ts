@@ -15,6 +15,7 @@ export interface ProjectRepository {
   getById(id: string): Promise<Project | null>;
   getMostRecentDraftOrEditing(date: string): Promise<Project | null>;
   list(): Promise<Project[]>;
+  listByStatus(status: Project['status']): Promise<Project[]>;
   update(id: string, patch: Partial<Project>): Promise<void>;
 }
 
