@@ -50,6 +50,7 @@ export interface SyncQueueRepository {
   enqueue(task: SyncQueueTask): Promise<void>;
   listPending(): Promise<SyncQueueTask[]>;
   listInProgress(): Promise<SyncQueueTask[]>;
+  listByProject(projectId: string): Promise<SyncQueueTask[]>;
   update(taskId: string, patch: Partial<SyncQueueTask>): Promise<void>;
 }
 

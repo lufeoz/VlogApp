@@ -68,6 +68,15 @@ export function createSyncQueueRepository(): SyncQueueRepository {
       return rows.map(toDomain);
     },
 
+    async listByProject(projectId) {
+      const db = await getDatabase();
+      const rows = await db.getAllAsync<SyncQueueRow>(
+        `SELECT * FROM sync_queue WHERE project_id = ? ORDER BY created_at ASC`,
+        [projectId]
+      );
+      return rows.map(toDomain);
+    },
+
     async update(taskId, patch) {
       const db = await getDatabase();
       const row = await db.getFirstAsync<SyncQueueRow>('SELECT * FROM sync_queue WHERE task_id = ?', [

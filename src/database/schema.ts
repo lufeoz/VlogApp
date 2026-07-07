@@ -94,6 +94,7 @@ CREATE TABLE IF NOT EXISTS sync_queue (
   updated_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_sync_queue_status_priority ON sync_queue(status, priority);
+CREATE INDEX IF NOT EXISTS idx_sync_queue_project ON sync_queue(project_id);
 
 CREATE TABLE IF NOT EXISTS ai_jobs (
   id TEXT PRIMARY KEY NOT NULL,

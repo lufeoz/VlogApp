@@ -7,6 +7,7 @@ import { logEvent } from './eventLogger';
 import { generateId } from './id';
 import { saveVideoToPhotoLibrary } from './mediaLibrary';
 import { getProjectDetail } from './projectService';
+import { enqueueProjectBackup, processSyncQueue } from './syncService';
 import { generateSingleThumbnail } from './thumbnails';
 
 // The single entry point the "완료" button calls. Orchestrates: build spec →
@@ -74,4 +75,13 @@ export async function exportProject(projectId: string): Promise<void> {
   // Best-effort and deliberately outside the try/catch above: a failure to
   // save into Photos must not undo an otherwise-successful export/version.
   await saveVideoToPhotoLibrary(outputUri);
+
+  // Background backup (architecture doc v4.1 core flow): only after export +
+  // Photos save have fully succeeded. Enqueueing is awaited (fast DB writes);
+  // the actual upload drain is fire-and-forget so the user isn't blocked
+  // waiting on network I/O after tapping "완료".
+  await enqueueProjectBackup(projectId, version.id);
+  processSyncQueue().catch((error) => {
+    console.error('Background sync failed', error);
+  });
 }
