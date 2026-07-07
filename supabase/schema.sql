@@ -117,6 +117,20 @@ create table if not exists ai_jobs (
 );
 create index if not exists idx_ai_jobs_project on ai_jobs(project_id);
 
+create table if not exists caption_cues (
+  id text primary key,
+  user_id uuid not null references auth.users(id),
+  project_id text not null references projects(id),
+  track_id text not null references tracks(id),
+  export_version_id text not null references export_versions(id),
+  text text not null,
+  start_ms double precision not null,
+  end_ms double precision not null,
+  order_index integer not null,
+  created_at timestamptz not null
+);
+create index if not exists idx_caption_cues_project on caption_cues(project_id, order_index);
+
 create table if not exists events (
   id text primary key,
   user_id uuid not null references auth.users(id),
@@ -138,6 +152,7 @@ alter table clips enable row level security;
 alter table export_versions enable row level security;
 alter table sync_queue enable row level security;
 alter table ai_jobs enable row level security;
+alter table caption_cues enable row level security;
 alter table events enable row level security;
 
 create policy "own rows only" on projects for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
@@ -147,6 +162,7 @@ create policy "own rows only" on clips for all using (auth.uid() = user_id) with
 create policy "own rows only" on export_versions for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
 create policy "own rows only" on sync_queue for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
 create policy "own rows only" on ai_jobs for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
+create policy "own rows only" on caption_cues for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
 create policy "own rows only" on events for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
 
 -- Storage bucket: projects/{projectId}/{clips|exports|thumbnails}/... + metadata.json

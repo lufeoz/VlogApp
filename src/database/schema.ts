@@ -113,6 +113,19 @@ CREATE TABLE IF NOT EXISTS ai_jobs (
 );
 CREATE INDEX IF NOT EXISTS idx_ai_jobs_project ON ai_jobs(project_id);
 
+CREATE TABLE IF NOT EXISTS caption_cues (
+  id TEXT PRIMARY KEY NOT NULL,
+  project_id TEXT NOT NULL,
+  track_id TEXT NOT NULL,
+  export_version_id TEXT NOT NULL,
+  text TEXT NOT NULL,
+  start_ms REAL NOT NULL,
+  end_ms REAL NOT NULL,
+  order_index INTEGER NOT NULL,
+  created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_caption_cues_project ON caption_cues(project_id, order_index);
+
 CREATE TABLE IF NOT EXISTS events (
   id TEXT PRIMARY KEY NOT NULL,
   project_id TEXT NOT NULL,

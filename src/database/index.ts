@@ -1,5 +1,6 @@
 import { createAiJobRepository } from './aiJobRepository';
 import { createAssetRepository } from './assetRepository';
+import { createCaptionCueRepository } from './captionCueRepository';
 import { createClipRepository } from './clipRepository';
 import { createEventRepository } from './eventRepository';
 import { createExportVersionRepository } from './exportVersionRepository';
@@ -20,4 +21,5 @@ export const localRepositories = {
   syncQueue: createSyncQueueRepository(),
   aiJobs: createAiJobRepository(),
   events: createEventRepository(),
+  captionCues: createCaptionCueRepository(),
 };

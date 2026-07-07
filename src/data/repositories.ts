@@ -3,6 +3,7 @@
 // Callers (services/) depend only on these interfaces, never on a concrete impl.
 import { AiJob } from '../domain/aiJob/types';
 import { Asset } from '../domain/asset/types';
+import { CaptionCue } from '../domain/caption/types';
 import { Clip } from '../domain/clip/types';
 import { EventLogEntry } from '../domain/event/types';
 import { ExportVersion } from '../domain/exportVersion/types';
@@ -65,4 +66,10 @@ export interface AiJobRepository {
 export interface EventRepository {
   append(event: EventLogEntry): Promise<void>;
   listByProject(projectId: string): Promise<EventLogEntry[]>;
+}
+
+export interface CaptionCueRepository {
+  create(cue: CaptionCue): Promise<void>;
+  listByProject(projectId: string): Promise<CaptionCue[]>;
+  deleteByProject(projectId: string): Promise<void>;
 }

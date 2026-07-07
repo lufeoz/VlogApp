@@ -1,13 +1,16 @@
 import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { Alert, Image, Pressable, StyleSheet, Text, View } from 'react-native';
 import DraggableFlatList, { RenderItemParams } from 'react-native-draggable-flatlist';
 
+import { listProjectCaptions, pollSubtitleJob, requestSubtitleGeneration } from '../../services/aiService';
 import { hideClipById, reorderClips, restoreClipById, trimClip } from '../../services/clipEditingService';
 import { exportProject } from '../../services/exportService';
 import { ClipWithAsset, getProjectDetail, ProjectDetail } from '../../services/projectService';
 import { retryProjectSync } from '../../services/syncService';
 import { ClipListItem } from '../../ui/components/ClipListItem';
+import { AiJob } from '../../domain/aiJob/types';
+import { CaptionCue } from '../../domain/caption/types';
 
 // UI only: renders project detail and forwards user actions to
 // clipEditingService. No editing rules live in this file.
@@ -16,13 +19,37 @@ export default function ProjectDetailScreen() {
   const [detail, setDetail] = useState<ProjectDetail | null>(null);
   const [isExporting, setIsExporting] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
+  const [captions, setCaptions] = useState<CaptionCue[]>([]);
+  const [subtitleJobId, setSubtitleJobId] = useState<string | null>(null);
+  const [subtitleJobStatus, setSubtitleJobStatus] = useState<AiJob['status'] | null>(null);
 
   const reload = useCallback(() => {
     if (!id) return;
     getProjectDetail(id).then(setDetail);
+    listProjectCaptions(id).then(setCaptions);
   }, [id]);
 
   useFocusEffect(reload);
+
+  // Poll the in-flight subtitle job every 3s until it reaches a terminal state.
+  useEffect(() => {
+    if (!subtitleJobId || subtitleJobStatus === 'completed' || subtitleJobStatus === 'failed') return;
+
+    const interval = setInterval(async () => {
+      try {
+        const job = await pollSubtitleJob(subtitleJobId);
+        setSubtitleJobStatus(job.status);
+        if (job.status === 'completed' && id) {
+          const cues = await listProjectCaptions(id);
+          setCaptions(cues);
+        }
+      } catch (error) {
+        console.error('Subtitle job poll failed', error);
+      }
+    }, 3000);
+
+    return () => clearInterval(interval);
+  }, [subtitleJobId, subtitleJobStatus, id]);
 
   if (!detail) {
     return <View style={styles.container} />;
@@ -85,6 +112,18 @@ export default function ProjectDetailScreen() {
     }
   };
 
+  const handleGenerateSubtitles = async () => {
+    try {
+      const jobId = await requestSubtitleGeneration(detail.project.id);
+      setSubtitleJobId(jobId);
+      setSubtitleJobStatus('queued');
+    } catch (error) {
+      Alert.alert('자막 생성 실패', error instanceof Error ? error.message : '알 수 없는 오류가 발생했습니다.');
+    }
+  };
+
+  const isGeneratingSubtitles = subtitleJobStatus === 'queued' || subtitleJobStatus === 'running';
+
   return (
     <View style={styles.container}>
       <View style={styles.header}>
@@ -136,6 +175,28 @@ export default function ProjectDetailScreen() {
       >
         <Text style={styles.exportButtonText}>{isExporting ? '내보내는 중...' : '완료'}</Text>
       </Pressable>
+
+      <View style={styles.aiSection}>
+        <Pressable
+          style={[styles.subtitleButton, isGeneratingSubtitles && styles.exportButtonDisabled]}
+          onPress={handleGenerateSubtitles}
+          disabled={isGeneratingSubtitles}
+        >
+          <Text style={styles.subtitleButtonText}>
+            {isGeneratingSubtitles ? `자막 생성 중... (${subtitleJobStatus})` : 'AI 자막 생성'}
+          </Text>
+        </Pressable>
+
+        {captions.length > 0 && (
+          <View style={styles.captionList}>
+            {captions.map((cue) => (
+              <Text key={cue.id} style={styles.captionText}>
+                [{(cue.startMs / 1000).toFixed(1)}s] {cue.text}
+              </Text>
+            ))}
+          </View>
+        )}
+      </View>
     </View>
   );
 }
@@ -175,4 +236,14 @@ const styles = StyleSheet.create({
   recoveryBannerText: { fontSize: 12, color: '#e65100', flex: 1, marginRight: 8 },
   retrySyncButton: { backgroundColor: '#e65100', paddingHorizontal: 10, paddingVertical: 6, borderRadius: 6 },
   retrySyncButtonText: { color: 'white', fontSize: 12, fontWeight: '600' },
+  aiSection: { marginHorizontal: 16, marginBottom: 16 },
+  subtitleButton: {
+    backgroundColor: '#6a1b9a',
+    paddingVertical: 14,
+    borderRadius: 8,
+    alignItems: 'center',
+  },
+  subtitleButtonText: { color: 'white', fontWeight: '600' },
+  captionList: { marginTop: 12, gap: 4 },
+  captionText: { fontSize: 12, color: '#444' },
 });
