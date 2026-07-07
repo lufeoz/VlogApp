@@ -1,8 +1,12 @@
 import { localRepositories } from '../database';
-import { AiJob } from '../domain/aiJob/types';
+import { buildAudioAsset } from '../domain/asset/logic';
+import { AiJob, AiJobType } from '../domain/aiJob/types';
 import { CaptionCue } from '../domain/caption/types';
+import { buildRecordedClip } from '../domain/clip/logic';
 import { fetchAiJobFromRemote, pushAiJobToRemote } from '../remote/aiJobRemote';
+import { downloadFileFromStorage } from '../remote/storageDownload';
 import { ensureAuthenticated, supabase } from '../remote/supabaseClient';
+import { getAudioDurationMs } from './audioDuration';
 import { generateId } from './id';
 
 interface SubtitleSegment {
@@ -29,41 +33,27 @@ export async function requestSubtitleGeneration(projectId: string): Promise<stri
     throw new Error('백업이 완료된 후 자막을 생성할 수 있습니다.');
   }
 
-  const userId = await ensureAuthenticated();
-  const now = new Date().toISOString();
-  const job: AiJob = {
-    id: generateId(),
-    projectId,
-    type: 'subtitle_generation',
-    status: 'queued',
-    progress: 0,
-    priority: 0,
-    workerVersion: null,
-    startedAt: null,
-    finishedAt: null,
-    result: null,
-    createdAt: now,
-    updatedAt: now,
-  };
-
-  await localRepositories.aiJobs.create(job);
-  await pushAiJobToRemote(job, userId);
-
-  const { error } = await supabase.functions.invoke('generate-subtitles', {
-    body: { aiJobId: job.id, exportVersionId: version.id },
+  return createAndDispatchAiJob(projectId, 'subtitle_generation', 'generate-subtitles', {
+    exportVersionId: version.id,
   });
-  if (error) throw new Error(`자막 생성 요청 실패: ${error.message}`);
-
-  return job.id;
 }
 
 // Polls the Supabase row (server-authoritative for this entity) and, once
 // completed, materializes the transcript into local CaptionCue rows.
+//
+// Guards against overlapping poll ticks (e.g. a slow network response still
+// in flight when the next 3s tick fires) by checking the LOCAL job's status
+// *before* this tick's update: if a previous tick already observed
+// `completed`, this one skips re-materializing. This narrows — doesn't fully
+// eliminate — the duplicate-write race for truly concurrent calls, which is
+// an accepted low-probability edge case elsewhere in this app (see M4 review).
 export async function pollSubtitleJob(aiJobId: string): Promise<AiJob> {
+  const wasAlreadyCompleted = (await localRepositories.aiJobs.getById(aiJobId))?.status === 'completed';
+
   const job = await fetchAiJobFromRemote(aiJobId);
   await localRepositories.aiJobs.update(aiJobId, job);
 
-  if (job.status === 'completed' && job.result) {
+  if (job.status === 'completed' && job.result && !wasAlreadyCompleted) {
     await materializeCaptions(job);
   }
 
@@ -108,4 +98,109 @@ async function materializeCaptions(job: AiJob): Promise<void> {
 
 export async function listProjectCaptions(projectId: string): Promise<CaptionCue[]> {
   return localRepositories.captionCues.listByProject(projectId);
+}
+
+interface GeneratedAudioJobResult {
+  storagePath: string;
+}
+
+async function createAndDispatchAiJob(
+  projectId: string,
+  type: AiJobType,
+  functionName: string,
+  body: Record<string, unknown>
+): Promise<string> {
+  const userId = await ensureAuthenticated();
+  const now = new Date().toISOString();
+  const job: AiJob = {
+    id: generateId(),
+    projectId,
+    type,
+    status: 'queued',
+    progress: 0,
+    priority: 0,
+    workerVersion: null,
+    startedAt: null,
+    finishedAt: null,
+    result: null,
+    createdAt: now,
+    updatedAt: now,
+  };
+
+  await localRepositories.aiJobs.create(job);
+  await pushAiJobToRemote(job, userId);
+
+  const { error } = await supabase.functions.invoke(functionName, { body: { aiJobId: job.id, ...body } });
+  if (error) throw new Error(`AI 작업 요청 실패: ${error.message}`);
+
+  return job.id;
+}
+
+// Downloads the generated audio (narration or music) to local storage and
+// adds it as a Clip on the project's single `audio` track — reused for both
+// AI features since Media3/AVFoundation mix every item on an audio track
+// independently regardless of which feature produced it (see native
+// video-composer notes).
+async function materializeGeneratedAudioClip(job: AiJob, fileNamePrefix: string): Promise<void> {
+  const result = job.result as unknown as GeneratedAudioJobResult | null;
+  if (!result?.storagePath) return;
+
+  const localUri = await downloadFileFromStorage(result.storagePath, `${fileNamePrefix}-${job.id}.mp3`);
+  const durationMs = await getAudioDurationMs(localUri);
+
+  let audioTrack = await localRepositories.tracks.getByProjectAndType(job.projectId, 'audio');
+  if (!audioTrack) {
+    audioTrack = {
+      id: generateId(),
+      projectId: job.projectId,
+      type: 'audio',
+      orderIndex: 2,
+      createdAt: new Date().toISOString(),
+    };
+    await localRepositories.tracks.create(audioTrack);
+  }
+
+  const now = new Date().toISOString();
+  const asset = buildAudioAsset({
+    id: generateId(),
+    projectId: job.projectId,
+    localUri,
+    durationMs,
+    thumbnailUri: '',
+    now,
+  });
+  await localRepositories.assets.create(asset);
+
+  const existingClips = await localRepositories.clips.listByTrack(audioTrack.id, { includeHidden: true });
+  const clip = buildRecordedClip({
+    id: generateId(),
+    projectId: job.projectId,
+    trackId: audioTrack.id,
+    assetId: asset.id,
+    orderIndex: existingClips.length,
+    durationMs,
+    now,
+  });
+  await localRepositories.clips.create(clip);
+}
+
+export async function requestNarrationGeneration(projectId: string, script: string): Promise<string> {
+  if (!script.trim()) throw new Error('내레이션 대본을 입력해주세요.');
+  return createAndDispatchAiJob(projectId, 'narration', 'generate-narration', { projectId, text: script });
+}
+
+// See pollSubtitleJob for why this checks local status first — here it
+// matters more, since re-materializing would add a *duplicate* audio clip
+// rather than just redundantly rewriting the same rows.
+export async function pollNarrationJob(aiJobId: string): Promise<AiJob> {
+  const wasAlreadyCompleted = (await localRepositories.aiJobs.getById(aiJobId))?.status === 'completed';
+
+  const job = await fetchAiJobFromRemote(aiJobId);
+  await localRepositories.aiJobs.update(aiJobId, job);
+
+  if (job.status === 'completed' && job.result && !wasAlreadyCompleted) {
+    await materializeGeneratedAudioClip(job, 'narration');
+  }
+
+  return job;
 }

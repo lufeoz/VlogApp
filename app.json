@@ -24,7 +24,12 @@
     "plugins": [
       "expo-sqlite",
       "expo-video",
-      ["expo-router", { "root": "src/app" }],
+      [
+        "expo-router",
+        {
+          "root": "src/app"
+        }
+      ],
       [
         "expo-camera",
         {
@@ -40,7 +45,9 @@
           "savePhotosPermission": "완성된 브이로그 영상을 사진첩에 저장하기 위해 접근 권한이 필요합니다.",
           "isAccessMediaLocationEnabled": false
         }
-      ]
+      ],
+      "expo-audio",
+      "expo-asset"
     ]
   }
 }

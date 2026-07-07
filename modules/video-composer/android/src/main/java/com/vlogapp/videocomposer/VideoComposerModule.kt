@@ -82,8 +82,43 @@ class VideoComposerModule : Module() {
       EditedMediaItem.Builder(mediaItem).build()
     }
 
-    val sequence = EditedMediaItemSequence.withAudioAndVideoFrom(editedItems)
-    val composition = Composition.Builder(sequence).build()
+    val videoSequence = EditedMediaItemSequence.withAudioAndVideoFrom(editedItems)
+    val sequences = mutableListOf(videoSequence)
+
+    // Phase 2: additional audio tracks (AI narration/music) layered on top of
+    // the original per-clip camera audio. Placed as their own sequence so
+    // Media3 mixes them with the video sequence's audio rather than replacing
+    // it. Volume/fade control (media3-effect) isn't implemented yet — always
+    // plays at source volume, unlike iOS which does apply AudioMix volume.
+    val audioTrackSpecs = tracks.filter { it["type"] == "audio" }
+    for (audioTrackSpec in audioTrackSpecs) {
+      @Suppress("UNCHECKED_CAST")
+      val audioItems = audioTrackSpec["items"] as? List<Map<String, Any?>> ?: continue
+
+      val overlayEditedItems = audioItems.mapNotNull { audioItem ->
+        val sourceUri = audioItem["sourceUri"] as? String ?: return@mapNotNull null
+        val trimStartMs = (audioItem["trimStart"] as? Number)?.toLong() ?: 0L
+        val trimEndMs = (audioItem["trimEnd"] as? Number)?.toLong() ?: return@mapNotNull null
+
+        val mediaItem = MediaItem.Builder()
+          .setUri(sourceUri)
+          .setClippingConfiguration(
+            MediaItem.ClippingConfiguration.Builder()
+              .setStartPositionMs(trimStartMs)
+              .setEndPositionMs(trimEndMs)
+              .build()
+          )
+          .build()
+
+        EditedMediaItem.Builder(mediaItem).build()
+      }
+
+      if (overlayEditedItems.isNotEmpty()) {
+        sequences.add(EditedMediaItemSequence.withAudioFrom(overlayEditedItems))
+      }
+    }
+
+    val composition = Composition.Builder(*sequences.toTypedArray()).build()
 
     val outputFile = File.createTempFile("export-", ".mp4", reactContext.cacheDir)
 

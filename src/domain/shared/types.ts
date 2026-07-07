@@ -1,4 +1,7 @@
-export type MediaType = 'video' | 'photo' | 'timelapse';
+// 'audio' added in Phase 2 for AI narration/music assets — additive only
+// (mediaType is stored as free TEXT, not a DB enum, specifically so this kind
+// of extension never needs a migration; see architecture doc v4.1 §1.8).
+export type MediaType = 'video' | 'photo' | 'timelapse' | 'audio';
 export type TrackType = 'video' | 'audio' | 'caption';
 export type SyncStatus = 'pending' | 'uploaded' | 'failed';
 

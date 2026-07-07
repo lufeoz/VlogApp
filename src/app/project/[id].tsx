@@ -1,9 +1,15 @@
 import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { useCallback, useEffect, useState } from 'react';
-import { Alert, Image, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Alert, Image, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import DraggableFlatList, { RenderItemParams } from 'react-native-draggable-flatlist';
 
-import { listProjectCaptions, pollSubtitleJob, requestSubtitleGeneration } from '../../services/aiService';
+import {
+  listProjectCaptions,
+  pollNarrationJob,
+  pollSubtitleJob,
+  requestNarrationGeneration,
+  requestSubtitleGeneration,
+} from '../../services/aiService';
 import { hideClipById, reorderClips, restoreClipById, trimClip } from '../../services/clipEditingService';
 import { exportProject } from '../../services/exportService';
 import { ClipWithAsset, getProjectDetail, ProjectDetail } from '../../services/projectService';
@@ -22,6 +28,9 @@ export default function ProjectDetailScreen() {
   const [captions, setCaptions] = useState<CaptionCue[]>([]);
   const [subtitleJobId, setSubtitleJobId] = useState<string | null>(null);
   const [subtitleJobStatus, setSubtitleJobStatus] = useState<AiJob['status'] | null>(null);
+  const [narrationScript, setNarrationScript] = useState('');
+  const [narrationJobId, setNarrationJobId] = useState<string | null>(null);
+  const [narrationJobStatus, setNarrationJobStatus] = useState<AiJob['status'] | null>(null);
 
   const reload = useCallback(() => {
     if (!id) return;
@@ -50,6 +59,22 @@ export default function ProjectDetailScreen() {
 
     return () => clearInterval(interval);
   }, [subtitleJobId, subtitleJobStatus, id]);
+
+  // Poll the in-flight narration job every 3s until it reaches a terminal state.
+  useEffect(() => {
+    if (!narrationJobId || narrationJobStatus === 'completed' || narrationJobStatus === 'failed') return;
+
+    const interval = setInterval(async () => {
+      try {
+        const job = await pollNarrationJob(narrationJobId);
+        setNarrationJobStatus(job.status);
+      } catch (error) {
+        console.error('Narration job poll failed', error);
+      }
+    }, 3000);
+
+    return () => clearInterval(interval);
+  }, [narrationJobId, narrationJobStatus]);
 
   if (!detail) {
     return <View style={styles.container} />;
@@ -124,6 +149,18 @@ export default function ProjectDetailScreen() {
 
   const isGeneratingSubtitles = subtitleJobStatus === 'queued' || subtitleJobStatus === 'running';
 
+  const handleGenerateNarration = async () => {
+    try {
+      const jobId = await requestNarrationGeneration(detail.project.id, narrationScript);
+      setNarrationJobId(jobId);
+      setNarrationJobStatus('queued');
+    } catch (error) {
+      Alert.alert('내레이션 생성 실패', error instanceof Error ? error.message : '알 수 없는 오류가 발생했습니다.');
+    }
+  };
+
+  const isGeneratingNarration = narrationJobStatus === 'queued' || narrationJobStatus === 'running';
+
   return (
     <View style={styles.container}>
       <View style={styles.header}>
@@ -196,6 +233,23 @@ export default function ProjectDetailScreen() {
             ))}
           </View>
         )}
+
+        <TextInput
+          style={styles.narrationInput}
+          placeholder="내레이션 대본을 입력하세요"
+          value={narrationScript}
+          onChangeText={setNarrationScript}
+          multiline
+        />
+        <Pressable
+          style={[styles.narrationButton, isGeneratingNarration && styles.exportButtonDisabled]}
+          onPress={handleGenerateNarration}
+          disabled={isGeneratingNarration}
+        >
+          <Text style={styles.subtitleButtonText}>
+            {isGeneratingNarration ? `내레이션 생성 중... (${narrationJobStatus})` : 'AI 내레이션 생성'}
+          </Text>
+        </Pressable>
       </View>
     </View>
   );
@@ -246,4 +300,21 @@ const styles = StyleSheet.create({
   subtitleButtonText: { color: 'white', fontWeight: '600' },
   captionList: { marginTop: 12, gap: 4 },
   captionText: { fontSize: 12, color: '#444' },
+  narrationInput: {
+    marginTop: 12,
+    minHeight: 60,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: '#ccc',
+    borderRadius: 8,
+    padding: 10,
+    fontSize: 13,
+    textAlignVertical: 'top',
+  },
+  narrationButton: {
+    marginTop: 8,
+    backgroundColor: '#00695c',
+    paddingVertical: 14,
+    borderRadius: 8,
+    alignItems: 'center',
+  },
 });

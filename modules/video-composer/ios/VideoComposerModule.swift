@@ -99,6 +99,51 @@ public class VideoComposerModule: Module {
       cursor = CMTimeAdd(cursor, timeRange.duration)
     }
 
+    let totalDuration = cursor
+
+    // Phase 2: additional audio tracks (AI narration/music) layered on top of
+    // the original per-clip camera audio. Each is placed starting at t=0 and
+    // clipped to the overall video duration — fadeIn/fadeOut are part of
+    // AudioCompositionItem but not implemented yet (volume is constant).
+    var audioMixParameters: [AVMutableAudioMixInputParameters] = []
+    let audioTrackSpecs = tracks.filter { ($0["type"] as? String) == "audio" }
+
+    for audioTrackSpec in audioTrackSpecs {
+      guard let audioItems = audioTrackSpec["items"] as? [[String: Any]] else { continue }
+
+      for audioItem in audioItems {
+        guard
+          let sourceUriString = audioItem["sourceUri"] as? String,
+          let sourceUrl = URL(string: sourceUriString),
+          let trimStartMs = audioItem["trimStart"] as? Double,
+          let trimEndMs = audioItem["trimEnd"] as? Double
+        else {
+          continue
+        }
+
+        let sourceAsset = AVURLAsset(url: sourceUrl)
+        guard let sourceAudioTrack = sourceAsset.tracks(withMediaType: .audio).first else { continue }
+        guard
+          let overlayCompositionTrack = composition.addMutableTrack(
+            withMediaType: .audio, preferredTrackID: kCMPersistentTrackID_Invalid)
+        else { continue }
+
+        let requestedRange = CMTimeRange(
+          start: CMTime(seconds: trimStartMs / 1000, preferredTimescale: 600),
+          end: CMTime(seconds: trimEndMs / 1000, preferredTimescale: 600)
+        )
+        let clippedDuration = CMTimeMinimum(requestedRange.duration, totalDuration)
+        let clippedRange = CMTimeRange(start: requestedRange.start, duration: clippedDuration)
+
+        try overlayCompositionTrack.insertTimeRange(clippedRange, of: sourceAudioTrack, at: .zero)
+
+        let volume = (audioItem["volume"] as? Double).map { Float($0) } ?? 1.0
+        let inputParams = AVMutableAudioMixInputParameters(track: overlayCompositionTrack)
+        inputParams.setVolume(volume, at: .zero)
+        audioMixParameters.append(inputParams)
+      }
+    }
+
     let outputUrl = FileManager.default.temporaryDirectory
       .appendingPathComponent(ProcessInfo.processInfo.globallyUniqueString)
       .appendingPathExtension("mp4")
@@ -110,6 +155,12 @@ public class VideoComposerModule: Module {
     }
     exportSession.outputURL = outputUrl
     exportSession.outputFileType = .mp4
+
+    if !audioMixParameters.isEmpty {
+      let audioMix = AVMutableAudioMix()
+      audioMix.inputParameters = audioMixParameters
+      exportSession.audioMix = audioMix
+    }
 
     return (exportSession, outputUrl)
   }
