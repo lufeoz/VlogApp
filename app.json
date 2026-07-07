@@ -1,7 +1,7 @@
 {
   "expo": {
-    "name": "vlog-app-scaffold",
-    "slug": "vlog-app-scaffold",
+    "name": "vlog-app",
+    "slug": "vlog-app",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
@@ -20,6 +20,27 @@
     },
     "web": {
       "favicon": "./assets/favicon.png"
-    }
+    },
+    "plugins": [
+      "expo-sqlite",
+      "expo-video",
+      ["expo-router", { "root": "src/app" }],
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "이 앱은 브이로그 컷을 촬영하기 위해 카메라 접근이 필요합니다.",
+          "microphonePermission": "이 앱은 촬영된 클립의 소리를 녹음하기 위해 마이크 접근이 필요합니다.",
+          "recordAudioAndroid": true
+        }
+      ],
+      [
+        "expo-media-library",
+        {
+          "photosPermission": "완성된 브이로그 영상을 사진첩에 저장하기 위해 접근 권한이 필요합니다.",
+          "savePhotosPermission": "완성된 브이로그 영상을 사진첩에 저장하기 위해 접근 권한이 필요합니다.",
+          "isAccessMediaLocationEnabled": false
+        }
+      ]
+    ]
   }
 }
