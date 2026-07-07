@@ -1,6 +1,6 @@
 import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { useCallback, useEffect, useState } from 'react';
-import { Alert, Image, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Image, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import DraggableFlatList, { RenderItemParams } from 'react-native-draggable-flatlist';
 
 import {
@@ -21,6 +21,7 @@ import { requestBackgroundMusic } from '../../services/musicService';
 import { ClipWithAsset, getProjectDetail, ProjectDetail } from '../../services/projectService';
 import { retryProjectSync } from '../../services/syncService';
 import { ClipListItem } from '../../ui/components/ClipListItem';
+import { notify } from '../../ui/notify';
 import { AiJob } from '../../domain/aiJob/types';
 import { CaptionCue } from '../../domain/caption/types';
 
@@ -42,11 +43,22 @@ export default function ProjectDetailScreen() {
   const [highlightJobId, setHighlightJobId] = useState<string | null>(null);
   const [highlightJobStatus, setHighlightJobStatus] = useState<AiJob['status'] | null>(null);
   const [highlights, setHighlights] = useState<HighlightRecommendation[]>([]);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   const reload = useCallback(() => {
     if (!id) return;
-    getProjectDetail(id).then(setDetail);
-    listProjectCaptions(id).then(setCaptions);
+    getProjectDetail(id)
+      .then((next) => {
+        setDetail(next);
+        setLoadError(null);
+      })
+      .catch((error) => {
+        console.error('Failed to load project detail', error);
+        setLoadError(error instanceof Error ? error.message : '프로젝트를 불러오지 못했습니다.');
+      });
+    listProjectCaptions(id)
+      .then(setCaptions)
+      .catch((error) => console.error('Failed to load captions', error));
   }, [id]);
 
   useFocusEffect(reload);
@@ -107,7 +119,15 @@ export default function ProjectDetailScreen() {
   }, [highlightJobId, highlightJobStatus]);
 
   if (!detail) {
-    return <View style={styles.container} />;
+    return (
+      <View style={styles.container}>
+        {loadError && (
+          <View style={styles.header}>
+            <Text style={styles.errorText}>불러오기 실패: {loadError}</Text>
+          </View>
+        )}
+      </View>
+    );
   }
 
   // Arrow function expressions (not hoisted function declarations) so
@@ -118,37 +138,54 @@ export default function ProjectDetailScreen() {
       reload();
     } catch (error) {
       console.error('Trim failed', error);
+      notify('트림 실패', error instanceof Error ? error.message : '알 수 없는 오류가 발생했습니다.');
     }
   };
 
   const handleHide = async (clipId: string) => {
-    await hideClipById(clipId);
-    reload();
+    try {
+      await hideClipById(clipId);
+      reload();
+    } catch (error) {
+      console.error('Hide failed', error);
+      notify('숨기기 실패', error instanceof Error ? error.message : '알 수 없는 오류가 발생했습니다.');
+    }
   };
 
   const handleRestore = async (clipId: string) => {
-    await restoreClipById(clipId);
-    reload();
+    try {
+      await restoreClipById(clipId);
+      reload();
+    } catch (error) {
+      console.error('Restore failed', error);
+      notify('복원 실패', error instanceof Error ? error.message : '알 수 없는 오류가 발생했습니다.');
+    }
   };
 
   const handleDragEnd = async (data: ClipWithAsset[]) => {
     setDetail((prev) => (prev ? { ...prev, visibleClips: data } : prev));
-    await reorderClips(
-      detail.videoTrack.id,
-      data.map((c) => c.clip.id)
-    );
-    reload();
+    try {
+      await reorderClips(
+        detail.videoTrack.id,
+        data.map((c) => c.clip.id)
+      );
+      reload();
+    } catch (error) {
+      console.error('Reorder failed', error);
+      notify('순서 변경 실패', error instanceof Error ? error.message : '알 수 없는 오류가 발생했습니다.');
+      reload(); // revert the optimistic order update to whatever's actually persisted
+    }
   };
 
   const handleExport = async () => {
     setIsExporting(true);
     try {
       await exportProject(detail.project.id);
-      Alert.alert('완료', '영상이 사진첩에 저장되었습니다.');
+      notify('완료', '영상이 사진첩에 저장되었습니다.');
       reload();
     } catch (error) {
       console.error('Export failed', error);
-      Alert.alert('내보내기 실패', error instanceof Error ? error.message : '알 수 없는 오류가 발생했습니다.');
+      notify('내보내기 실패', error instanceof Error ? error.message : '알 수 없는 오류가 발생했습니다.');
     } finally {
       setIsExporting(false);
     }
@@ -161,7 +198,7 @@ export default function ProjectDetailScreen() {
       reload();
     } catch (error) {
       console.error('Retry sync failed', error);
-      Alert.alert('재동기화 실패', error instanceof Error ? error.message : '알 수 없는 오류가 발생했습니다.');
+      notify('재동기화 실패', error instanceof Error ? error.message : '알 수 없는 오류가 발생했습니다.');
     } finally {
       setIsSyncing(false);
     }
@@ -173,7 +210,7 @@ export default function ProjectDetailScreen() {
       setSubtitleJobId(jobId);
       setSubtitleJobStatus('queued');
     } catch (error) {
-      Alert.alert('자막 생성 실패', error instanceof Error ? error.message : '알 수 없는 오류가 발생했습니다.');
+      notify('자막 생성 실패', error instanceof Error ? error.message : '알 수 없는 오류가 발생했습니다.');
     }
   };
 
@@ -185,7 +222,7 @@ export default function ProjectDetailScreen() {
       setNarrationJobId(jobId);
       setNarrationJobStatus('queued');
     } catch (error) {
-      Alert.alert('내레이션 생성 실패', error instanceof Error ? error.message : '알 수 없는 오류가 발생했습니다.');
+      notify('내레이션 생성 실패', error instanceof Error ? error.message : '알 수 없는 오류가 발생했습니다.');
     }
   };
 
@@ -195,9 +232,9 @@ export default function ProjectDetailScreen() {
     setIsAddingMusic(true);
     try {
       await requestBackgroundMusic(detail.project.id);
-      Alert.alert('완료', '무료 배경음악이 추가되었습니다.');
+      notify('완료', '무료 배경음악이 추가되었습니다.');
     } catch (error) {
-      Alert.alert('배경음악 추가 실패', error instanceof Error ? error.message : '알 수 없는 오류가 발생했습니다.');
+      notify('배경음악 추가 실패', error instanceof Error ? error.message : '알 수 없는 오류가 발생했습니다.');
     } finally {
       setIsAddingMusic(false);
     }
@@ -210,7 +247,7 @@ export default function ProjectDetailScreen() {
       setHighlightJobStatus('queued');
       setHighlights([]);
     } catch (error) {
-      Alert.alert('하이라이트 추천 실패', error instanceof Error ? error.message : '알 수 없는 오류가 발생했습니다.');
+      notify('하이라이트 추천 실패', error instanceof Error ? error.message : '알 수 없는 오류가 발생했습니다.');
     }
   };
 
@@ -226,11 +263,11 @@ export default function ProjectDetailScreen() {
     try {
       const count = await importVideosIntoProject(detail.project.id);
       if (count > 0) {
-        Alert.alert('가져오기 완료', `${count}개의 영상을 가져왔습니다.`);
+        notify('가져오기 완료', `${count}개의 영상을 가져왔습니다.`);
         reload();
       }
     } catch (error) {
-      Alert.alert('가져오기 실패', error instanceof Error ? error.message : '알 수 없는 오류가 발생했습니다.');
+      notify('가져오기 실패', error instanceof Error ? error.message : '알 수 없는 오류가 발생했습니다.');
     } finally {
       setIsImporting(false);
     }
@@ -380,6 +417,7 @@ const styles = StyleSheet.create({
   header: { padding: 16, gap: 4 },
   title: { fontSize: 18, fontWeight: '700' },
   status: { fontSize: 12, color: '#666' },
+  errorText: { fontSize: 12, color: '#c62828', textAlign: 'center' },
   hiddenSection: { padding: 16, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: '#ddd' },
   hiddenTitle: { fontSize: 13, fontWeight: '600', marginBottom: 8, color: '#666' },
   hiddenRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 8 },

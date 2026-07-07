@@ -4,15 +4,28 @@ import { FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { Project } from '../domain/project/types';
 import { createProject, getTodayProjectSummary, listProjects, TodayProjectSummary } from '../services/projectService';
+import { notify } from '../ui/notify';
 
 export default function HomeScreen() {
   const [summary, setSummary] = useState<TodayProjectSummary | null>(null);
   const [projects, setProjects] = useState<Project[]>([]);
   const [isCreating, setIsCreating] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   const reload = useCallback(() => {
-    getTodayProjectSummary().then(setSummary);
-    listProjects().then(setProjects);
+    setLoadError(null);
+    getTodayProjectSummary()
+      .then(setSummary)
+      .catch((error) => {
+        console.error('Failed to load today project summary', error);
+        setLoadError(error instanceof Error ? error.message : '데이터를 불러오지 못했습니다.');
+      });
+    listProjects()
+      .then(setProjects)
+      .catch((error) => {
+        console.error('Failed to load project list', error);
+        setLoadError(error instanceof Error ? error.message : '데이터를 불러오지 못했습니다.');
+      });
   }, []);
 
   useFocusEffect(reload);
@@ -22,6 +35,9 @@ export default function HomeScreen() {
     try {
       const project = await createProject();
       router.push(`/project/${project.id}`);
+    } catch (error) {
+      console.error('Failed to create project', error);
+      notify('프로젝트 생성 실패', error instanceof Error ? error.message : '알 수 없는 오류가 발생했습니다.');
     } finally {
       setIsCreating(false);
     }
@@ -31,6 +47,7 @@ export default function HomeScreen() {
     <View style={styles.container}>
       <View style={styles.header}>
         <Text style={styles.title}>Vlog</Text>
+        {loadError && <Text style={styles.errorText}>불러오기 실패: {loadError}</Text>}
         <Text style={styles.summary}>
           {summary?.project
             ? `오늘 프로젝트: ${summary.project.status} · 클립 ${summary.clipCount}개`
@@ -74,6 +91,7 @@ const styles = StyleSheet.create({
   header: { padding: 16, gap: 12, alignItems: 'center' },
   title: { fontSize: 20, fontWeight: '600' },
   summary: { fontSize: 14, color: '#666' },
+  errorText: { fontSize: 12, color: '#c62828', textAlign: 'center' },
   button: {
     backgroundColor: '#e53935',
     paddingHorizontal: 24,
