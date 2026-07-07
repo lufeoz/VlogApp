@@ -2,11 +2,13 @@ import { localRepositories } from '../database';
 import { AiJob, AiJobType } from '../domain/aiJob/types';
 import { CaptionCue } from '../domain/caption/types';
 import { fetchAiJobFromRemote, pushAiJobToRemote } from '../remote/aiJobRemote';
+import { thumbnailPath } from '../remote/storagePaths';
 import { downloadFileFromStorage } from '../remote/storageDownload';
 import { ensureAuthenticated, supabase } from '../remote/supabaseClient';
 import { addAudioClipFromLocalFile } from './audioTrackService';
 import { getAudioDurationMs } from './audioDuration';
 import { generateId } from './id';
+import { getProjectDetail } from './projectService';
 
 interface SubtitleSegment {
   text: string;
@@ -165,4 +167,48 @@ export async function pollNarrationJob(aiJobId: string): Promise<AiJob> {
   }
 
   return job;
+}
+
+export interface HighlightRecommendation {
+  clipId: string;
+  score: number;
+  reason: string;
+  suggestion: 'keep' | 'hide';
+}
+
+interface HighlightJobResult {
+  recommendations: HighlightRecommendation[];
+}
+
+// Advisory only — nothing is auto-applied. Requires every visible clip's
+// Asset to already be backed up (M4), since the Edge Function only has
+// access to Supabase Storage, not the device's local files; reuses the
+// thumbnail already uploaded by UPLOAD_CLIP rather than uploading anything new.
+export async function requestHighlightDetection(projectId: string): Promise<string> {
+  const detail = await getProjectDetail(projectId);
+  if (!detail) throw new Error(`Project ${projectId} not found`);
+  if (detail.visibleClips.length === 0) {
+    throw new Error('분석할 클립이 없습니다.');
+  }
+  if (detail.visibleClips.some(({ asset }) => asset.syncStatus !== 'uploaded')) {
+    throw new Error('백업이 완료된 후 하이라이트 추천을 받을 수 있습니다.');
+  }
+
+  const clips = detail.visibleClips.map(({ clip, asset }) => ({
+    clipId: clip.id,
+    thumbnailStoragePath: thumbnailPath(projectId, asset.id),
+  }));
+
+  return createAndDispatchAiJob(projectId, 'highlight_detection', 'detect-highlights', { clips });
+}
+
+export async function pollHighlightJob(aiJobId: string): Promise<AiJob> {
+  const job = await fetchAiJobFromRemote(aiJobId);
+  await localRepositories.aiJobs.update(aiJobId, job);
+  return job;
+}
+
+export function getHighlightRecommendations(job: AiJob): HighlightRecommendation[] {
+  const result = job.result as unknown as HighlightJobResult | null;
+  return result?.recommendations ?? [];
 }

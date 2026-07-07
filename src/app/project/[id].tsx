@@ -4,9 +4,13 @@ import { Alert, Image, Pressable, StyleSheet, Text, TextInput, View } from 'reac
 import DraggableFlatList, { RenderItemParams } from 'react-native-draggable-flatlist';
 
 import {
+  getHighlightRecommendations,
+  HighlightRecommendation,
   listProjectCaptions,
+  pollHighlightJob,
   pollNarrationJob,
   pollSubtitleJob,
+  requestHighlightDetection,
   requestNarrationGeneration,
   requestSubtitleGeneration,
 } from '../../services/aiService';
@@ -33,6 +37,9 @@ export default function ProjectDetailScreen() {
   const [narrationJobId, setNarrationJobId] = useState<string | null>(null);
   const [narrationJobStatus, setNarrationJobStatus] = useState<AiJob['status'] | null>(null);
   const [isAddingMusic, setIsAddingMusic] = useState(false);
+  const [highlightJobId, setHighlightJobId] = useState<string | null>(null);
+  const [highlightJobStatus, setHighlightJobStatus] = useState<AiJob['status'] | null>(null);
+  const [highlights, setHighlights] = useState<HighlightRecommendation[]>([]);
 
   const reload = useCallback(() => {
     if (!id) return;
@@ -77,6 +84,25 @@ export default function ProjectDetailScreen() {
 
     return () => clearInterval(interval);
   }, [narrationJobId, narrationJobStatus]);
+
+  // Poll the in-flight highlight-detection job every 3s until terminal.
+  useEffect(() => {
+    if (!highlightJobId || highlightJobStatus === 'completed' || highlightJobStatus === 'failed') return;
+
+    const interval = setInterval(async () => {
+      try {
+        const job = await pollHighlightJob(highlightJobId);
+        setHighlightJobStatus(job.status);
+        if (job.status === 'completed') {
+          setHighlights(getHighlightRecommendations(job));
+        }
+      } catch (error) {
+        console.error('Highlight job poll failed', error);
+      }
+    }, 3000);
+
+    return () => clearInterval(interval);
+  }, [highlightJobId, highlightJobStatus]);
 
   if (!detail) {
     return <View style={styles.container} />;
@@ -173,6 +199,24 @@ export default function ProjectDetailScreen() {
     } finally {
       setIsAddingMusic(false);
     }
+  };
+
+  const handleDetectHighlights = async () => {
+    try {
+      const jobId = await requestHighlightDetection(detail.project.id);
+      setHighlightJobId(jobId);
+      setHighlightJobStatus('queued');
+      setHighlights([]);
+    } catch (error) {
+      Alert.alert('하이라이트 추천 실패', error instanceof Error ? error.message : '알 수 없는 오류가 발생했습니다.');
+    }
+  };
+
+  const isDetectingHighlights = highlightJobStatus === 'queued' || highlightJobStatus === 'running';
+
+  const handleHideFromHighlight = async (clipId: string) => {
+    await handleHide(clipId);
+    setHighlights((prev) => prev.filter((item) => item.clipId !== clipId));
   };
 
   return (
@@ -274,6 +318,33 @@ export default function ProjectDetailScreen() {
             {isAddingMusic ? '배경음악 찾는 중...' : '무료 배경음악 추가'}
           </Text>
         </Pressable>
+
+        <Pressable
+          style={[styles.highlightButton, isDetectingHighlights && styles.exportButtonDisabled]}
+          onPress={handleDetectHighlights}
+          disabled={isDetectingHighlights}
+        >
+          <Text style={styles.subtitleButtonText}>
+            {isDetectingHighlights ? `분석 중... (${highlightJobStatus})` : 'AI 하이라이트 추천받기'}
+          </Text>
+        </Pressable>
+
+        {highlights.length > 0 && (
+          <View style={styles.highlightList}>
+            {highlights.map((item) => (
+              <View key={item.clipId} style={styles.highlightRow}>
+                <Text style={styles.highlightText}>
+                  [{item.score}점, {item.suggestion === 'hide' ? '숨김 추천' : '유지 추천'}] {item.reason}
+                </Text>
+                {item.suggestion === 'hide' && (
+                  <Pressable style={styles.hideSuggestionButton} onPress={() => handleHideFromHighlight(item.clipId)}>
+                    <Text style={styles.hideSuggestionButtonText}>숨기기</Text>
+                  </Pressable>
+                )}
+              </View>
+            ))}
+          </View>
+        )}
       </View>
     </View>
   );
@@ -348,4 +419,26 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     alignItems: 'center',
   },
+  highlightButton: {
+    marginTop: 8,
+    backgroundColor: '#37474f',
+    paddingVertical: 14,
+    borderRadius: 8,
+    alignItems: 'center',
+  },
+  highlightList: { marginTop: 12, gap: 8 },
+  highlightRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 8,
+  },
+  highlightText: { fontSize: 12, color: '#444', flex: 1 },
+  hideSuggestionButton: {
+    backgroundColor: '#ffebee',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 6,
+  },
+  hideSuggestionButtonText: { fontSize: 12, color: '#c62828' },
 });
