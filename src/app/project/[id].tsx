@@ -12,6 +12,7 @@ import {
 } from '../../services/aiService';
 import { hideClipById, reorderClips, restoreClipById, trimClip } from '../../services/clipEditingService';
 import { exportProject } from '../../services/exportService';
+import { requestBackgroundMusic } from '../../services/musicService';
 import { ClipWithAsset, getProjectDetail, ProjectDetail } from '../../services/projectService';
 import { retryProjectSync } from '../../services/syncService';
 import { ClipListItem } from '../../ui/components/ClipListItem';
@@ -31,6 +32,7 @@ export default function ProjectDetailScreen() {
   const [narrationScript, setNarrationScript] = useState('');
   const [narrationJobId, setNarrationJobId] = useState<string | null>(null);
   const [narrationJobStatus, setNarrationJobStatus] = useState<AiJob['status'] | null>(null);
+  const [isAddingMusic, setIsAddingMusic] = useState(false);
 
   const reload = useCallback(() => {
     if (!id) return;
@@ -161,6 +163,18 @@ export default function ProjectDetailScreen() {
 
   const isGeneratingNarration = narrationJobStatus === 'queued' || narrationJobStatus === 'running';
 
+  const handleAddMusic = async () => {
+    setIsAddingMusic(true);
+    try {
+      await requestBackgroundMusic(detail.project.id);
+      Alert.alert('완료', '무료 배경음악이 추가되었습니다.');
+    } catch (error) {
+      Alert.alert('배경음악 추가 실패', error instanceof Error ? error.message : '알 수 없는 오류가 발생했습니다.');
+    } finally {
+      setIsAddingMusic(false);
+    }
+  };
+
   return (
     <View style={styles.container}>
       <View style={styles.header}>
@@ -250,6 +264,16 @@ export default function ProjectDetailScreen() {
             {isGeneratingNarration ? `내레이션 생성 중... (${narrationJobStatus})` : 'AI 내레이션 생성'}
           </Text>
         </Pressable>
+
+        <Pressable
+          style={[styles.musicButton, isAddingMusic && styles.exportButtonDisabled]}
+          onPress={handleAddMusic}
+          disabled={isAddingMusic}
+        >
+          <Text style={styles.subtitleButtonText}>
+            {isAddingMusic ? '배경음악 찾는 중...' : '무료 배경음악 추가'}
+          </Text>
+        </Pressable>
       </View>
     </View>
   );
@@ -313,6 +337,13 @@ const styles = StyleSheet.create({
   narrationButton: {
     marginTop: 8,
     backgroundColor: '#00695c',
+    paddingVertical: 14,
+    borderRadius: 8,
+    alignItems: 'center',
+  },
+  musicButton: {
+    marginTop: 8,
+    backgroundColor: '#ef6c00',
     paddingVertical: 14,
     borderRadius: 8,
     alignItems: 'center',

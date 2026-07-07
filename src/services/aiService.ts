@@ -1,11 +1,10 @@
 import { localRepositories } from '../database';
-import { buildAudioAsset } from '../domain/asset/logic';
 import { AiJob, AiJobType } from '../domain/aiJob/types';
 import { CaptionCue } from '../domain/caption/types';
-import { buildRecordedClip } from '../domain/clip/logic';
 import { fetchAiJobFromRemote, pushAiJobToRemote } from '../remote/aiJobRemote';
 import { downloadFileFromStorage } from '../remote/storageDownload';
 import { ensureAuthenticated, supabase } from '../remote/supabaseClient';
+import { addAudioClipFromLocalFile } from './audioTrackService';
 import { getAudioDurationMs } from './audioDuration';
 import { generateId } from './id';
 
@@ -136,52 +135,15 @@ async function createAndDispatchAiJob(
   return job.id;
 }
 
-// Downloads the generated audio (narration or music) to local storage and
-// adds it as a Clip on the project's single `audio` track — reused for both
-// AI features since Media3/AVFoundation mix every item on an audio track
-// independently regardless of which feature produced it (see native
-// video-composer notes).
+// Downloads the generated narration audio to local storage and adds it as a
+// Clip on the project's `audio` track (see audioTrackService.ts).
 async function materializeGeneratedAudioClip(job: AiJob, fileNamePrefix: string): Promise<void> {
   const result = job.result as unknown as GeneratedAudioJobResult | null;
   if (!result?.storagePath) return;
 
   const localUri = await downloadFileFromStorage(result.storagePath, `${fileNamePrefix}-${job.id}.mp3`);
   const durationMs = await getAudioDurationMs(localUri);
-
-  let audioTrack = await localRepositories.tracks.getByProjectAndType(job.projectId, 'audio');
-  if (!audioTrack) {
-    audioTrack = {
-      id: generateId(),
-      projectId: job.projectId,
-      type: 'audio',
-      orderIndex: 2,
-      createdAt: new Date().toISOString(),
-    };
-    await localRepositories.tracks.create(audioTrack);
-  }
-
-  const now = new Date().toISOString();
-  const asset = buildAudioAsset({
-    id: generateId(),
-    projectId: job.projectId,
-    localUri,
-    durationMs,
-    thumbnailUri: '',
-    now,
-  });
-  await localRepositories.assets.create(asset);
-
-  const existingClips = await localRepositories.clips.listByTrack(audioTrack.id, { includeHidden: true });
-  const clip = buildRecordedClip({
-    id: generateId(),
-    projectId: job.projectId,
-    trackId: audioTrack.id,
-    assetId: asset.id,
-    orderIndex: existingClips.length,
-    durationMs,
-    now,
-  });
-  await localRepositories.clips.create(clip);
+  await addAudioClipFromLocalFile(job.projectId, localUri, durationMs);
 }
 
 export async function requestNarrationGeneration(projectId: string, script: string): Promise<string> {
