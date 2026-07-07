@@ -5,6 +5,7 @@ import { AiJob } from '../domain/aiJob/types';
 import { addAudioClipFromLocalFile } from './audioTrackService';
 import { getAudioDurationMs } from './audioDuration';
 import { generateId } from './id';
+import { assertNativeFeatureAvailable } from './platformSupport';
 
 // "Free music" here means royalty-free stock music matched to the video's
 // length, not generative AI — Jamendo's catalog is genuinely free (no paid
@@ -68,7 +69,11 @@ async function resolveTargetDurationSec(projectId: string): Promise<number> {
   }
 }
 
+// Web-gated: downloading the matched track (expo-file-system's File API) and
+// probing its duration (expo-audio) are both native-only.
 export async function requestBackgroundMusic(projectId: string): Promise<void> {
+  assertNativeFeatureAvailable('무료 배경음악 추가');
+
   const now = new Date().toISOString();
   const job: AiJob = {
     id: generateId(),

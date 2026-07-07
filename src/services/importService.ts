@@ -6,6 +6,7 @@ import { buildRecordedClip } from '../domain/clip/logic';
 import { afterClipEdited, afterClipRecorded, canEditClips } from '../domain/project/logic';
 import { logEvent } from './eventLogger';
 import { generateId } from './id';
+import { assertNativeFeatureAvailable } from './platformSupport';
 import { generateThumbnails } from './thumbnails';
 
 // Phase 3: bring previously-shot videos into a project's timeline through
@@ -13,7 +14,14 @@ import { generateThumbnails } from './thumbnails';
 // imported video is just a new Asset. This is the entire reason Asset/Clip
 // were split apart in Phase 1 (architecture doc v4.1 §7): nothing else here
 // needed to change for this feature to exist.
+//
+// Web-gated even though expo-image-picker itself has web support: the
+// returned URI is an ephemeral blob: URL there (doesn't survive a reload),
+// and thumbnail generation (expo-video-thumbnails) is native-only, so the
+// result would be unreliable rather than cleanly unsupported.
 export async function importVideosIntoProject(projectId: string): Promise<number> {
+  assertNativeFeatureAvailable('영상 가져오기');
+
   const project = await localRepositories.projects.getById(projectId);
   if (!project) throw new Error(`Project ${projectId} not found`);
   if (!canEditClips(project.status)) {

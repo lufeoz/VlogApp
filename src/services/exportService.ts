@@ -6,6 +6,7 @@ import { canEditClips } from '../domain/project/logic';
 import { logEvent } from './eventLogger';
 import { generateId } from './id';
 import { saveVideoToPhotoLibrary } from './mediaLibrary';
+import { assertNativeFeatureAvailable } from './platformSupport';
 import { enqueueProjectBackup, processSyncQueue } from './syncService';
 import { generateSingleThumbnail } from './thumbnails';
 
@@ -35,6 +36,8 @@ async function getTracksWithClips(projectId: string): Promise<TrackWithClips[]> 
 // native composeAsync → ExportVersion (+ thumbnail) → project status/version
 // pointers → event log → save to Photo Library (architecture doc v4.1 core flow).
 export async function exportProject(projectId: string): Promise<void> {
+  assertNativeFeatureAvailable('내보내기');
+
   const project = await localRepositories.projects.getById(projectId);
   if (!project) throw new Error(`Project ${projectId} not found`);
 

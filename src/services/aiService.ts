@@ -8,6 +8,7 @@ import { ensureAuthenticated, supabase } from '../remote/supabaseClient';
 import { addAudioClipFromLocalFile } from './audioTrackService';
 import { getAudioDurationMs } from './audioDuration';
 import { generateId } from './id';
+import { assertNativeFeatureAvailable } from './platformSupport';
 import { getProjectDetail } from './projectService';
 
 interface SubtitleSegment {
@@ -23,8 +24,12 @@ interface SubtitleJobResult {
 
 // Requires the project's latest export to already be backed up (M4) — the
 // Edge Function reads the video from Supabase Storage; it has no access to
-// the device's local file.
+// the device's local file. Export itself is native-only, so this is
+// unreachable on web anyway; the explicit guard just gives a clearer message
+// than the generic precondition errors below would.
 export async function requestSubtitleGeneration(projectId: string): Promise<string> {
+  assertNativeFeatureAvailable('AI 자막 생성');
+
   const project = await localRepositories.projects.getById(projectId);
   if (!project?.latestVersionId) {
     throw new Error('먼저 영상을 내보내주세요.');
@@ -148,7 +153,11 @@ async function materializeGeneratedAudioClip(job: AiJob, fileNamePrefix: string)
   await addAudioClipFromLocalFile(job.projectId, localUri, durationMs);
 }
 
+// Web-gated: the result must be downloaded to a local file (expo-file-system's
+// File API, native-only) and probed for duration (expo-audio, native-only)
+// before it can become a Clip.
 export async function requestNarrationGeneration(projectId: string, script: string): Promise<string> {
+  assertNativeFeatureAvailable('AI 내레이션 생성');
   if (!script.trim()) throw new Error('내레이션 대본을 입력해주세요.');
   return createAndDispatchAiJob(projectId, 'narration', 'generate-narration', { projectId, text: script });
 }
@@ -185,6 +194,8 @@ interface HighlightJobResult {
 // access to Supabase Storage, not the device's local files; reuses the
 // thumbnail already uploaded by UPLOAD_CLIP rather than uploading anything new.
 export async function requestHighlightDetection(projectId: string): Promise<string> {
+  assertNativeFeatureAvailable('AI 하이라이트 추천');
+
   const detail = await getProjectDetail(projectId);
   if (!detail) throw new Error(`Project ${projectId} not found`);
   if (detail.visibleClips.length === 0) {

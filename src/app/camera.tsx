@@ -1,7 +1,7 @@
 import { CameraView, useCameraPermissions, useMicrophonePermissions } from 'expo-camera';
 import { router } from 'expo-router';
 import { useRef, useState } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { recordClip } from '../services/recordingService';
 import { useRecordingStore } from '../ui/state/useRecordingStore';
@@ -17,6 +17,20 @@ export default function CameraScreen() {
   const isRecording = useRecordingStore((s) => s.isRecording);
   const start = useRecordingStore((s) => s.start);
   const stop = useRecordingStore((s) => s.stop);
+
+  // expo-camera's recordAsync/stopRecording are Android/iOS only (verified
+  // against official docs) — there is no web video-recording implementation
+  // to fall back to, so this is gated rather than left to fail obscurely.
+  if (Platform.OS === 'web') {
+    return (
+      <View style={styles.container}>
+        <Text style={styles.message}>촬영 기능은 웹에서 지원되지 않습니다. 모바일 앱을 이용해주세요.</Text>
+        <Pressable style={styles.button} onPress={() => router.back()}>
+          <Text style={styles.buttonText}>돌아가기</Text>
+        </Pressable>
+      </View>
+    );
+  }
 
   if (!cameraPermission || !microphonePermission) {
     return <View style={styles.container} />;
